@@ -10,17 +10,24 @@ const notes = ref('')
 const duration = ref(30)
 const loading = ref(false)
 const error = ref('')
+const showBookManager = ref(false)
+
+// 添加书籍表单
+const newBook = ref({ title: '', author: '', total_pages: 0 })
+const editingBook = ref(null)
 
 // 弹窗状态
 const showModal = ref(false)
 const modalMessage = ref('')
 const modalPoints = ref(0)
 
+// 录音
 const isRecording = ref(false)
 const mediaRecorder = ref(null)
 const audioChunks = ref([])
 const audioUrl = ref('')
 const recordedFile = ref(null)
+const micPermission = ref('unknown') // unknown | granted | denied
 
 // 按钮是否可点击
 const buttonDisabled = computed(() => loading.value || !recordedFile.value)
@@ -34,7 +41,58 @@ const fetchBooks = async () => {
   } catch {}
 }
 
+// 检查麦克风权限
+const checkMicPermission = async () => {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      micPermission.value = 'denied'
+      return
+    }
+    const result = await navigator.permissions.query({ name: 'microphone' })
+    micPermission.value = result.state
+  } catch {
+    micPermission.value = 'unknown'
+  }
+}
+
+// 请求麦克风权限
+const requestMicPermission = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    micPermission.value = 'granted'
+    // 立即释放，仅做权限验证
+    stream.getTracks().forEach(t => t.stop())
+  } catch (err) {
+    micPermission.value = 'denied'
+    if (err.name === 'NotAllowedError') {
+      error.value = '请在浏览器设置中允许麦克风权限，或检查设备的隐私设置'
+    } else if (err.name === 'NotFoundError') {
+      error.value = '未检测到麦克风设备'
+    } else {
+      error.value = '无法获取麦克风权限: ' + (err.message || '未知错误')
+    }
+  }
+}
+
+// 页面加载时检查权限
+onMounted(async () => {
+  await checkMicPermission()
+  if (micPermission.value === 'prompt') {
+    // 权限未决定，自动弹窗请求
+    await requestMicPermission()
+  } else if (micPermission.value === 'denied') {
+    error.value = '麦克风权限被拒绝，请点击下方按钮授权后重试'
+  }
+  fetchBooks()
+})
+
 const startRecording = async () => {
+  // 先检查权限
+  if (micPermission.value !== 'granted') {
+    await requestMicPermission()
+    if (micPermission.value !== 'granted') return
+  }
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     mediaRecorder.value = new MediaRecorder(stream)
@@ -49,7 +107,8 @@ const startRecording = async () => {
     mediaRecorder.value.start()
     isRecording.value = true
   } catch {
-    error.value = '无法访问麦克风'
+    micPermission.value = 'denied'
+    error.value = '无法访问麦克风，请检查权限设置'
   }
 }
 
@@ -111,26 +170,163 @@ const checkin = async () => {
   }
 }
 
-const closeModal = () => { showModal.value = false }
+// 书籍管理
+const addBook = async () => {
+  if (!newBook.value.title.trim()) {
+    error.value = '请输入书名'
+    return
+  }
+  try {
+    const res = await fetch('/api/books', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${userStore.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(newBook.value)
+    })
+    if (!res.ok) throw new Error('添加失败')
+    newBook.value = { title: '', author: '', total_pages: 0 }
+    error.value = ''
+    await fetchBooks()
+  } catch (e) {
+    error.value = e.message
+  }
+}
 
-onMounted(fetchBooks)
+const updateBookProgress = async (book) => {
+  try {
+    const maxPage = book.total_pages || 9999
+    const page = Math.min(book.current_page, maxPage)
+    await fetch(`/api/books/${book.id}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${userStore.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        current_page: page,
+        status: page >= book.total_pages && book.total_pages > 0 ? 'finished' : 'reading'
+      })
+    })
+    await fetchBooks()
+  } catch {}
+}
+
+const deleteBook = async (id) => {
+  if (!confirm('确定删除这本书？')) return
+  try {
+    await fetch(`/api/books/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${userStore.token}` }
+    })
+    await fetchBooks()
+  } catch {}
+}
+
+const closeModal = () => { showModal.value = false }
 </script>
 
 <template>
-  <div class="p-4 max-w-lg mx-auto">
+  <div class="p-4 max-w-lg mx-auto pb-24">
     <div class="card p-6 mb-4 gradient-knowledge">
-      <div class="flex items-center gap-4">
-        <div class="text-5xl">📚</div>
-        <div>
-          <h2 class="text-2xl font-bold text-white">读书打卡</h2>
-          <p class="text-white/80 text-sm">录音朗读 + 分享心得</p>
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <div class="text-5xl">📚</div>
+          <div>
+            <h2 class="text-2xl font-bold text-white">读书打卡</h2>
+            <p class="text-white/80 text-sm">录音朗读 + 分享心得</p>
+          </div>
         </div>
+        <button
+          @click="showBookManager = !showBookManager"
+          class="btn bg-white/20 text-white text-sm"
+        >
+          {{ showBookManager ? '收起管理' : '📖 管理书籍' }}
+        </button>
       </div>
     </div>
 
+    <!-- 书籍管理面板 -->
+    <div v-if="showBookManager" class="card p-5 mb-4">
+      <h3 class="font-bold mb-4">我的书架</h3>
+
+      <!-- 添加书籍 -->
+      <div class="bg-white/5 rounded-xl p-4 mb-4">
+        <div class="flex gap-2 mb-2">
+          <input v-model="newBook.title" type="text" placeholder="书名" class="flex-1 text-sm py-2 px-3" />
+        </div>
+        <div class="flex gap-2 mb-2">
+          <input v-model="newBook.author" type="text" placeholder="作者" class="flex-1 text-sm py-2 px-3" />
+          <input v-model.number="newBook.total_pages" type="number" placeholder="总页数" class="w-24 text-sm py-2 px-3" />
+        </div>
+        <button @click="addBook" class="btn gradient-knowledge text-white text-sm py-2 px-6">
+          + 添加书籍
+        </button>
+      </div>
+
+      <!-- 书籍列表 -->
+      <div v-if="books.length === 0" class="text-center py-6 text-white/40">
+        还没有添加书籍，点击上方添加
+      </div>
+      <div v-for="book in books" :key="book.id" class="flex items-center gap-3 py-3 border-b border-white/5 last:border-0">
+        <div class="flex-1 min-w-0">
+          <div class="font-bold text-sm truncate">《{{ book.title }}》</div>
+          <div class="text-white/40 text-xs">{{ book.author || '未设置作者' }}</div>
+          <div class="flex items-center gap-2 mt-2">
+            <input
+              type="number"
+              :value="book.current_page"
+              @change="updateBookProgress(book)"
+              min="0"
+              class="w-16 text-sm py-1 px-2"
+            />
+            <span class="text-white/40 text-xs">/ {{ book.total_pages || '∞' }} 页</span>
+            <span
+              class="text-xs px-2 py-0.5 rounded-full"
+              :class="book.status === 'finished' ? 'bg-green-500/30 text-green-300' : 'bg-yellow-500/30 text-yellow-300'"
+            >
+              {{ book.status === 'finished' ? '已读完' : '在读' }}
+            </span>
+          </div>
+          <div v-if="book.total_pages" class="mt-2">
+            <div class="h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                class="h-full gradient-knowledge transition-all"
+                :style="{ width: `${Math.min(100, (book.current_page / book.total_pages) * 100)}%` }"
+              ></div>
+            </div>
+          </div>
+        </div>
+        <button @click="deleteBook(book.id)" class="text-red-400 text-xs hover:text-red-300 flex-shrink-0">删除</button>
+      </div>
+    </div>
+
+    <!-- 打卡表单 -->
     <div class="card p-6">
-      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4">
-        {{ error }}
+      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4 flex items-start gap-2">
+        <span class="flex-shrink-0 mt-0.5">⚠️</span>
+        <span>{{ error }}</span>
+        <button v-if="micPermission === 'denied'" @click="requestMicPermission" class="flex-shrink-0 text-yellow-300 underline ml-auto text-sm">
+          授权麦克风
+        </button>
+      </div>
+
+      <!-- 麦克风权限提示 -->
+      <div v-if="micPermission === 'denied'" class="bg-yellow-500/15 border border-yellow-500/40 p-4 rounded-xl mb-4">
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">🎤</span>
+          <div class="flex-1">
+            <p class="text-yellow-300 font-bold text-sm">需要麦克风权限</p>
+            <p class="text-yellow-200/70 text-xs mt-1">录音打卡需要使用麦克风，请点击授权按钮允许访问</p>
+          </div>
+          <button
+            @click="requestMicPermission"
+            class="btn bg-yellow-500/30 text-yellow-200 text-sm py-2 px-4 flex-shrink-0"
+          >
+            授权麦克风
+          </button>
+        </div>
       </div>
 
       <!-- Select Book -->
@@ -142,7 +338,6 @@ onMounted(fetchBooks)
             《{{ book.title }}》{{ book.author ? ` - ${book.author}` : '' }}
           </option>
         </select>
-        <a href="#/books" class="text-primary text-sm mt-1 inline-block">管理书籍</a>
       </div>
 
       <!-- Reading Duration -->
@@ -161,11 +356,16 @@ onMounted(fetchBooks)
           <button
             @click="isRecording ? stopRecording() : startRecording()"
             class="btn flex items-center gap-2"
-            :class="isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : 'gradient-knowledge text-white'"
+            :class="[
+              isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : 'gradient-knowledge text-white',
+              micPermission === 'denied' ? 'opacity-40' : ''
+            ]"
           >
             <span>{{ isRecording ? '⏹ 停止录音' : '🎙 开始录音' }}</span>
           </button>
           <span v-if="isRecording" class="text-red-400 animate-pulse">录音中...</span>
+          <span v-else-if="micPermission === 'denied'" class="text-red-400 text-xs">无权限</span>
+          <span v-else-if="micPermission === 'granted'" class="text-green-400 text-xs">✓ 已授权</span>
         </div>
         <div v-if="audioUrl" class="mt-3">
           <audio :src="audioUrl" controls class="w-full" style="height: 40px;"></audio>

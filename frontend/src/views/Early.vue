@@ -77,7 +77,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-4 max-w-lg mx-auto">
+  <div class="p-4 max-w-lg mx-auto pb-24">
     <div class="card p-6 mb-4 gradient-sunrise">
       <div class="flex items-center gap-4">
         <div class="text-5xl animate-sunrise">🌅</div>

@@ -8,9 +8,9 @@ const isAdmin = computed(() => userStore.role === 'admin')
 </script>
 
 <template>
-  <div class="min-h-screen pb-20">
+  <div class="min-h-screen">
     <RouterView />
-    <nav v-if="userStore.token" class="fixed bottom-0 left-0 right-0 glass-nav">
+    <nav v-if="userStore.token" class="fixed-nav">
       <div class="flex justify-around py-3">
         <RouterLink to="/" class="nav-item">
           <div class="nav-icon">🏠</div>
@@ -35,6 +35,7 @@ const isAdmin = computed(() => userStore.role === 'admin')
       </div>
       <div class="flex justify-center gap-8 py-2 border-t border-white/10">
         <RouterLink to="/rank" class="nav-item-sm">🏆 排行</RouterLink>
+        <RouterLink to="/books" class="nav-item-sm">📖 书籍</RouterLink>
         <RouterLink v-if="isAdmin" to="/admin" class="nav-item-sm">⚙️ 管理</RouterLink>
         <button @click="userStore.logout()" class="nav-item-sm">🚪 退出</button>
       </div>
@@ -43,10 +44,17 @@ const isAdmin = computed(() => userStore.role === 'admin')
 </template>
 
 <style scoped>
-.glass-nav {
-  background: rgba(15, 15, 35, 0.95);
-  backdrop-filter: blur(20px);
+.fixed-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(15, 15, 35, 0.98);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-overflow-scrolling: touch;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .nav-item {
@@ -56,6 +64,8 @@ const isAdmin = computed(() => userStore.role === 'admin')
   padding: 8px 16px;
   border-radius: 12px;
   transition: all 0.2s;
+  text-decoration: none;
+  flex-shrink: 0;
 }
 
 .nav-item:hover, .nav-item.router-link-active {
@@ -76,6 +86,8 @@ const isAdmin = computed(() => userStore.role === 'admin')
   color: rgba(255, 255, 255, 0.7);
   padding: 4px 12px;
   border-radius: 8px;
+  text-decoration: none;
+  flex-shrink: 0;
 }
 
 .nav-item-sm:hover, .nav-item-sm.router-link-active {
