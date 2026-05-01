@@ -27,7 +27,8 @@ const mediaRecorder = ref(null)
 const audioChunks = ref([])
 const audioUrl = ref('')
 const recordedFile = ref(null)
-const micPermission = ref('unknown') // unknown | granted | denied
+const micPermission = ref('unknown') // unknown | granted | denied | unsupported
+const canRecord = ref(false) // 是否支持录音
 
 // 按钮是否可点击
 const buttonDisabled = computed(() => loading.value || !recordedFile.value)
@@ -41,13 +42,30 @@ const fetchBooks = async () => {
   } catch {}
 }
 
+// 检测录音支持情况
+const checkRecordingSupport = () => {
+  // HTTP 下 mediaDevices 不可用，只有 HTTPS 或 localhost 支持
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    canRecord.value = false
+    micPermission.value = 'unsupported'
+
+    // 检测是否是 HTTP 环境
+    if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      error.value = '录音功能需要 HTTPS 安全连接。请使用 localhost 或 HTTPS 地址访问，或上传预录音频文件'
+    } else {
+      error.value = '当前浏览器不支持录音功能，请上传预录音频文件'
+    }
+    return false
+  }
+  canRecord.value = true
+  return true
+}
+
 // 检查麦克风权限
 const checkMicPermission = async () => {
+  if (!checkRecordingSupport()) return
+
   try {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      micPermission.value = 'denied'
-      return
-    }
     const result = await navigator.permissions.query({ name: 'microphone' })
     micPermission.value = result.state
   } catch {
@@ -57,36 +75,58 @@ const checkMicPermission = async () => {
 
 // 请求麦克风权限
 const requestMicPermission = async () => {
+  if (!canRecord.value) {
+    error.value = '录音功能需要 HTTPS 安全连接，请使用 localhost 访问或上传音频文件'
+    return
+  }
+
+  error.value = ''
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     micPermission.value = 'granted'
-    // 立即释放，仅做权限验证
+    canRecord.value = true
     stream.getTracks().forEach(t => t.stop())
   } catch (err) {
     micPermission.value = 'denied'
     if (err.name === 'NotAllowedError') {
-      error.value = '请在浏览器设置中允许麦克风权限，或检查设备的隐私设置'
+      error.value = '麦克风权限被拒绝，请在浏览器地址栏左侧点击允许，或上传音频文件'
     } else if (err.name === 'NotFoundError') {
-      error.value = '未检测到麦克风设备'
+      error.value = '未检测到麦克风设备，请上传音频文件'
     } else {
-      error.value = '无法获取麦克风权限: ' + (err.message || '未知错误')
+      error.value = '无法获取麦克风权限，请上传音频文件'
     }
   }
+}
+
+// 上传音频文件（替代方案）
+const handleAudioUpload = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+
+  // 验证文件类型
+  const validTypes = ['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/m4a']
+  if (!validTypes.includes(file.type) && !file.name.match(/\.(webm|mp3|m4a|wav|ogg|mp4)$/i)) {
+    error.value = '请上传音频文件（mp3/m4a/wav/webm/ogg）'
+    return
+  }
+
+  error.value = ''
+  audioUrl.value = URL.createObjectURL(file)
+  recordedFile.value = file
 }
 
 // 页面加载时检查权限
 onMounted(async () => {
   await checkMicPermission()
-  if (micPermission.value === 'prompt') {
-    // 权限未决定，自动弹窗请求
-    await requestMicPermission()
-  } else if (micPermission.value === 'denied') {
-    error.value = '麦克风权限被拒绝，请点击下方按钮授权后重试'
-  }
   fetchBooks()
 })
 
 const startRecording = async () => {
+  if (!canRecord.value) {
+    error.value = '录音功能需要 HTTPS，请上传音频文件'
+    return
+  }
+
   // 先检查权限
   if (micPermission.value !== 'granted') {
     await requestMicPermission()
@@ -106,9 +146,10 @@ const startRecording = async () => {
     }
     mediaRecorder.value.start()
     isRecording.value = true
-  } catch {
+    error.value = ''
+  } catch (err) {
     micPermission.value = 'denied'
-    error.value = '无法访问麦克风，请检查权限设置'
+    error.value = '无法访问麦克风，请上传音频文件'
   }
 }
 
@@ -304,27 +345,41 @@ const closeModal = () => { showModal.value = false }
 
     <!-- 打卡表单 -->
     <div class="card p-6">
-      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4 flex items-start gap-2">
-        <span class="flex-shrink-0 mt-0.5">⚠️</span>
+      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4">
         <span>{{ error }}</span>
-        <button v-if="micPermission === 'denied'" @click="requestMicPermission" class="flex-shrink-0 text-yellow-300 underline ml-auto text-sm">
-          授权麦克风
-        </button>
       </div>
 
-      <!-- 麦克风权限提示 -->
-      <div v-if="micPermission === 'denied'" class="bg-yellow-500/15 border border-yellow-500/40 p-4 rounded-xl mb-4">
+      <!-- HTTPS/录音不支持提示 -->
+      <div v-if="micPermission === 'unsupported'" class="bg-yellow-500/15 border border-yellow-500/40 p-4 rounded-xl mb-4">
+        <div class="flex items-start gap-3">
+          <span class="text-3xl flex-shrink-0">🔒</span>
+          <div class="flex-1">
+            <p class="text-yellow-300 font-bold text-sm">录音需要 HTTPS 安全连接</p>
+            <p class="text-yellow-200/70 text-xs mt-1">
+              HTTP 环境下浏览器禁止使用麦克风。请：
+            </p>
+            <ul class="text-yellow-200/70 text-xs mt-1 list-disc list-inside">
+              <li>使用 http://localhost:3001 本地访问</li>
+              <li>或配置 HTTPS 证书</li>
+              <li>或上传预先录好的音频文件</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 麦克风权限被拒提示 -->
+      <div v-else-if="micPermission === 'denied'" class="bg-yellow-500/15 border border-yellow-500/40 p-4 rounded-xl mb-4">
         <div class="flex items-center gap-3">
           <span class="text-3xl">🎤</span>
           <div class="flex-1">
             <p class="text-yellow-300 font-bold text-sm">需要麦克风权限</p>
-            <p class="text-yellow-200/70 text-xs mt-1">录音打卡需要使用麦克风，请点击授权按钮允许访问</p>
+            <p class="text-yellow-200/70 text-xs mt-1">点击浏览器地址栏左侧的图标允许麦克风，或上传音频文件</p>
           </div>
           <button
             @click="requestMicPermission"
             class="btn bg-yellow-500/30 text-yellow-200 text-sm py-2 px-4 flex-shrink-0"
           >
-            授权麦克风
+            重试授权
           </button>
         </div>
       </div>
@@ -349,26 +404,37 @@ const closeModal = () => { showModal.value = false }
         </div>
       </div>
 
-      <!-- Audio Recording -->
+      <!-- Audio Recording / Upload -->
       <div class="mb-4">
         <label class="text-white/60 text-sm mb-2 block">朗读录音（必填）</label>
-        <div class="flex items-center gap-4">
+
+        <!-- 录音按钮（仅在支持时显示） -->
+        <div v-if="canRecord" class="flex items-center gap-4 mb-3">
           <button
             @click="isRecording ? stopRecording() : startRecording()"
             class="btn flex items-center gap-2"
             :class="[
               isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : 'gradient-knowledge text-white',
-              micPermission === 'denied' ? 'opacity-40' : ''
+              micPermission === 'denied' ? 'opacity-50' : ''
             ]"
           >
             <span>{{ isRecording ? '⏹ 停止录音' : '🎙 开始录音' }}</span>
           </button>
           <span v-if="isRecording" class="text-red-400 animate-pulse">录音中...</span>
-          <span v-else-if="micPermission === 'denied'" class="text-red-400 text-xs">无权限</span>
           <span v-else-if="micPermission === 'granted'" class="text-green-400 text-xs">✓ 已授权</span>
         </div>
+
+        <!-- 上传音频文件（始终可用） -->
+        <label class="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-white/20 rounded-xl cursor-pointer hover:border-green-400/50 transition-all mb-3">
+          <span class="text-2xl">📁</span>
+          <span class="text-white/60 text-sm">{{ canRecord ? '或上传音频文件' : '上传音频文件（mp3/m4a/wav）' }}</span>
+          <input type="file" accept="audio/*" @change="handleAudioUpload" class="hidden" />
+        </label>
+
+        <!-- 已录/已上传音频 -->
         <div v-if="audioUrl" class="mt-3">
           <audio :src="audioUrl" controls class="w-full" style="height: 40px;"></audio>
+          <p class="text-green-400 text-xs mt-1">✓ 录音已就绪</p>
         </div>
       </div>
 
