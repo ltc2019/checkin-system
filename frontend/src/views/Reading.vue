@@ -1,6 +1,7 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '../stores/user'
+import SuccessModal from '../components/SuccessModal.vue'
 
 const userStore = useUserStore()
 const books = ref([])
@@ -9,14 +10,20 @@ const notes = ref('')
 const duration = ref(30)
 const loading = ref(false)
 const error = ref('')
-const success = ref('')
-const successAnim = ref(false)
+
+// 弹窗状态
+const showModal = ref(false)
+const modalMessage = ref('')
+const modalPoints = ref(0)
 
 const isRecording = ref(false)
 const mediaRecorder = ref(null)
 const audioChunks = ref([])
 const audioUrl = ref('')
 const recordedFile = ref(null)
+
+// 按钮是否可点击
+const buttonDisabled = computed(() => loading.value || !recordedFile.value)
 
 const fetchBooks = async () => {
   try {
@@ -68,10 +75,7 @@ const uploadAudio = async () => {
 }
 
 const checkin = async () => {
-  if (!recordedFile.value) {
-    error.value = '请先录音'
-    return
-  }
+  if (buttonDisabled.value) return
   loading.value = true
   error.value = ''
   try {
@@ -91,19 +95,23 @@ const checkin = async () => {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail)
-    success.value = data.message
-    successAnim.value = true
+
+    modalMessage.value = data.message
+    modalPoints.value = data.points || 3
+    showModal.value = true
+
     notes.value = ''
     selectedBook.value = null
     recordedFile.value = null
     audioUrl.value = ''
-    setTimeout(() => { successAnim.value = false }, 3000)
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
 }
+
+const closeModal = () => { showModal.value = false }
 
 onMounted(fetchBooks)
 </script>
@@ -118,12 +126,6 @@ onMounted(fetchBooks)
           <p class="text-white/80 text-sm">录音朗读 + 分享心得</p>
         </div>
       </div>
-    </div>
-
-    <div v-if="successAnim" class="card p-8 text-center mb-4">
-      <div class="text-6xl mb-4 animate-float">📖</div>
-      <h3 class="text-2xl font-bold" style="color: var(--knowledge-dark)">{{ success }}</h3>
-      <p class="text-white/60 mt-2">阅读点亮人生！</p>
     </div>
 
     <div class="card p-6">
@@ -178,11 +180,25 @@ onMounted(fetchBooks)
 
       <button
         @click="checkin"
-        :disabled="loading || !recordedFile"
-        class="btn gradient-knowledge text-white w-full text-lg font-bold"
+        :disabled="buttonDisabled"
+        :class="[
+          'btn w-full text-lg font-bold transition-all',
+          buttonDisabled
+            ? 'bg-gray-500/30 text-gray-400 cursor-not-allowed opacity-50'
+            : 'gradient-knowledge text-white hover:scale-105'
+        ]"
       >
-        {{ loading ? '提交中...' : '📚 提交打卡' }}
+        <span v-if="loading">提交中...</span>
+        <span v-else>📚 提交打卡</span>
       </button>
     </div>
+
+    <SuccessModal
+      :show="showModal"
+      type="reading"
+      :message="modalMessage"
+      :points="modalPoints"
+      @close="closeModal"
+    />
   </div>
 </template>

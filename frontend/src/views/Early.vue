@@ -1,16 +1,23 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '../stores/user'
+import SuccessModal from '../components/SuccessModal.vue'
 
 const userStore = useUserStore()
 const notes = ref('')
 const loading = ref(false)
 const error = ref('')
-const success = ref('')
 const alreadyChecked = ref(false)
 const currentTime = ref('')
 const canCheckin = ref(false)
-const successAnim = ref(false)
+
+// 弹窗状态
+const showModal = ref(false)
+const modalMessage = ref('')
+const modalPoints = ref(0)
+
+// 按钮是否可点击
+const buttonDisabled = computed(() => loading.value || alreadyChecked.value || !canCheckin.value)
 
 const checkTime = () => {
   const now = new Date()
@@ -32,12 +39,10 @@ const fetchToday = async () => {
 }
 
 const checkin = async () => {
-  if (!canCheckin.value || loading.value) return
+  if (buttonDisabled.value) return
   loading.value = true
   error.value = ''
   try {
-    const formData = new FormData()
-    formData.append('notes', notes.value)
     const res = await fetch('/api/checkin/early', {
       method: 'POST',
       headers: { Authorization: `Bearer ${userStore.token}` },
@@ -45,15 +50,23 @@ const checkin = async () => {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail)
-    success.value = data.message
+
+    // 更新状态
     alreadyChecked.value = true
-    successAnim.value = true
-    setTimeout(() => { successAnim.value = false }, 3000)
+    modalMessage.value = data.message
+    modalPoints.value = data.points || 2
+
+    // 显示弹窗
+    showModal.value = true
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
+}
+
+const closeModal = () => {
+  showModal.value = false
 }
 
 onMounted(() => {
@@ -76,29 +89,26 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="alreadyChecked && !success" class="card p-8 text-center">
-      <div class="text-6xl mb-4">✅</div>
-      <h3 class="text-xl font-bold">今日已打卡</h3>
-      <p class="text-white/60 mt-2">明天继续保持！</p>
-    </div>
-
-    <div v-else-if="successAnim" class="card p-8 text-center">
-      <div class="text-6xl mb-4 animate-float">🎉</div>
-      <h3 class="text-2xl font-bold text-gradient">{{ success }}</h3>
-      <p class="text-white/60 mt-2">好习惯从早起开始！</p>
-    </div>
-
-    <div v-else class="card p-6">
+    <div class="card p-6">
       <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4">
         {{ error }}
       </div>
 
-      <div v-if="!canCheckin" class="text-center py-8">
+      <!-- 已打卡状态 -->
+      <div v-if="alreadyChecked" class="text-center py-8">
+        <div class="text-6xl mb-4">✅</div>
+        <h3 class="text-xl font-bold">今日已打卡</h3>
+        <p class="text-white/60 mt-2">明天继续保持！</p>
+      </div>
+
+      <!-- 未在打卡时间 -->
+      <div v-else-if="!canCheckin" class="text-center py-8">
         <div class="text-4xl mb-4 opacity-40">😴</div>
         <p class="text-white/40">不在打卡时间范围内</p>
         <p class="text-white/30 text-sm mt-2">请等待 5:30 - 8:30 进行打卡</p>
       </div>
 
+      <!-- 可打卡 -->
       <div v-else>
         <div class="mb-4">
           <label class="text-white/60 text-sm mb-2 block">今日寄语（选填）</label>
@@ -107,10 +117,17 @@ onMounted(() => {
 
         <button
           @click="checkin"
-          :disabled="loading"
-          class="btn gradient-sunrise text-gray-800 w-full text-lg font-bold"
+          :disabled="buttonDisabled"
+          :class="[
+            'btn w-full text-lg font-bold transition-all',
+            buttonDisabled
+              ? 'bg-gray-500/30 text-gray-400 cursor-not-allowed opacity-50'
+              : 'gradient-sunrise text-gray-800 hover:scale-105'
+          ]"
         >
-          {{ loading ? '打卡中...' : '🌅 立即打卡' }}
+          <span v-if="loading">打卡中...</span>
+          <span v-else-if="alreadyChecked">已打卡 ✓</span>
+          <span v-else>🌅 立即打卡</span>
         </button>
       </div>
     </div>
@@ -124,5 +141,14 @@ onMounted(() => {
         <li>• 早起打卡可获 2 积分</li>
       </ul>
     </div>
+
+    <!-- 成功弹窗 -->
+    <SuccessModal
+      :show="showModal"
+      type="early"
+      :message="modalMessage"
+      :points="modalPoints"
+      @close="closeModal"
+    />
   </div>
 </template>

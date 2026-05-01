@@ -1,6 +1,7 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useUserStore } from '../stores/user'
+import SuccessModal from '../components/SuccessModal.vue'
 
 const userStore = useUserStore()
 const steps = ref(0)
@@ -11,10 +12,16 @@ const photoUrls = ref([])
 const videoUrl = ref('')
 const loading = ref(false)
 const error = ref('')
-const success = ref('')
-const successAnim = ref(false)
+
+// 弹窗状态
+const showModal = ref(false)
+const modalMessage = ref('')
+const modalPoints = ref(0)
 
 const sportTypes = ['跑步', '健身', '骑行', '游泳', '瑜伽', '篮球', '足球', '其他']
+
+// 按钮是否可点击
+const buttonDisabled = computed(() => loading.value || (photoUrls.value.length === 0 && !videoUrl.value))
 
 const calcCalories = () => {
   const rate = { '跑步': 0.04, '骑行': 0.03, '游泳': 0.07, '健身': 0.05, '瑜伽': 0.025, '篮球': 0.06, '足球': 0.06, '其他': 0.035 }
@@ -61,10 +68,7 @@ const removePhoto = (index) => {
 }
 
 const checkin = async () => {
-  if (photoUrls.value.length === 0 && !videoUrl.value) {
-    error.value = '请上传照片或视频'
-    return
-  }
+  if (buttonDisabled.value) return
   loading.value = true
   error.value = ''
   try {
@@ -85,19 +89,23 @@ const checkin = async () => {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail)
-    success.value = data.message
-    successAnim.value = true
+
+    modalMessage.value = data.message
+    modalPoints.value = data.points || 3
+    showModal.value = true
+
     steps.value = 0
     notes.value = ''
     photoUrls.value = []
     videoUrl.value = ''
-    setTimeout(() => { successAnim.value = false }, 3000)
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
 }
+
+const closeModal = () => { showModal.value = false }
 </script>
 
 <template>
@@ -110,12 +118,6 @@ const checkin = async () => {
           <p class="text-white/80 text-sm">步数 + 拍照/视频记录</p>
         </div>
       </div>
-    </div>
-
-    <div v-if="successAnim" class="card p-8 text-center mb-4">
-      <div class="text-6xl mb-4 animate-float">💪</div>
-      <h3 class="text-2xl font-bold" style="color: var(--sport-dark)">{{ success }}</h3>
-      <p class="text-white/60 mt-2">运动是最好的投资！</p>
     </div>
 
     <div class="card p-6">
@@ -186,11 +188,25 @@ const checkin = async () => {
 
       <button
         @click="checkin"
-        :disabled="loading || (photoUrls.length === 0 && !videoUrl)"
-        class="btn gradient-sport text-white w-full text-lg font-bold"
+        :disabled="buttonDisabled"
+        :class="[
+          'btn w-full text-lg font-bold transition-all',
+          buttonDisabled
+            ? 'bg-gray-500/30 text-gray-400 cursor-not-allowed opacity-50'
+            : 'gradient-sport text-white hover:scale-105'
+        ]"
       >
-        {{ loading ? '提交中...' : '🏃 提交打卡' }}
+        <span v-if="loading">提交中...</span>
+        <span v-else>🏃 提交打卡</span>
       </button>
     </div>
+
+    <SuccessModal
+      :show="showModal"
+      type="sport"
+      :message="modalMessage"
+      :points="modalPoints"
+      @close="closeModal"
+    />
   </div>
 </template>
