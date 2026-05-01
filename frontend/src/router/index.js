@@ -11,6 +11,9 @@ const routes = [
   { path: '/stats', name: 'Stats', component: () => import('../views/Stats.vue'), meta: { auth: true } },
   { path: '/rank', name: 'Rank', component: () => import('../views/Rank.vue'), meta: { auth: true } },
   { path: '/admin', name: 'Admin', component: () => import('../views/Admin.vue'), meta: { auth: true, admin: true } },
+  { path: '/calendar', name: 'Calendar', component: () => import('../views/Calendar.vue'), meta: { auth: true } },
+  { path: '/history', name: 'History', component: () => import('../views/History.vue'), meta: { auth: true } },
+  { path: '/profile', name: 'Profile', component: () => import('../views/Profile.vue'), meta: { auth: true } },
 ]
 
 const router = createRouter({

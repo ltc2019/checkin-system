@@ -80,6 +80,16 @@ def init_db():
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS achievements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            level INTEGER DEFAULT 1,
+            achieved_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(user_id, type)
+        );
     """)
 
     cursor.execute("SELECT COUNT(*) FROM rules")
@@ -101,5 +111,8 @@ def init_db():
             ("admin", password_hash, "管理员", "admin")
         )
 
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_checkins_user_type_date ON checkins(user_id, type, date(checkin_time))")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_checkins_user_date ON checkins(user_id, date(checkin_time))")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_checkins_user_id ON checkins(user_id)")
     conn.commit()
     conn.close()

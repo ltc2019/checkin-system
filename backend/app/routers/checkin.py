@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from datetime import datetime, timedelta
 import os, json, uuid
 from app.database import get_db
 from app.models.schemas import EarlyCheckin, ReadingCheckin, SportCheckin
 from app.utils.deps import get_current_user
+from app.routers.achievements import check_and_award_achievements
 
 router = APIRouter(prefix="/api/checkin", tags=["打卡"])
 
@@ -50,9 +51,11 @@ def early_checkin(data: EarlyCheckin, current_user: dict = Depends(get_current_u
     )
     streak = cursor.fetchone()[0]
 
+    awards = check_and_award_achievements(current_user["sub"], conn)
+
     conn.commit()
     conn.close()
-    return {"message": "早起打卡成功", "points": points, "streak": streak}
+    return {"message": "早起打卡成功", "points": points, "streak": streak + 1, "awards": awards}
 
 @router.post("/reading")
 def reading_checkin(data: ReadingCheckin, current_user: dict = Depends(get_current_user)):
@@ -61,6 +64,15 @@ def reading_checkin(data: ReadingCheckin, current_user: dict = Depends(get_curre
 
     conn = get_db()
     cursor = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute(
+        "SELECT id FROM checkins WHERE user_id=? AND type='reading' AND date(checkin_time)=?",
+        (current_user["sub"], today)
+    )
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="今日已打过读书卡")
 
     cursor.execute(
         "INSERT INTO checkins (user_id, type, notes, audio_url, book_id, reading_duration) "
@@ -84,9 +96,11 @@ def reading_checkin(data: ReadingCheckin, current_user: dict = Depends(get_curre
             (data.book_id, current_user["sub"])
         )
 
+    awards = check_and_award_achievements(current_user["sub"], conn)
+
     conn.commit()
     conn.close()
-    return {"message": "读书打卡成功", "points": points}
+    return {"message": "读书打卡成功", "points": points, "awards": awards}
 
 @router.post("/sport")
 def sport_checkin(data: SportCheckin, current_user: dict = Depends(get_current_user)):
@@ -95,6 +109,15 @@ def sport_checkin(data: SportCheckin, current_user: dict = Depends(get_current_u
 
     conn = get_db()
     cursor = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute(
+        "SELECT id FROM checkins WHERE user_id=? AND type='sport' AND date(checkin_time)=?",
+        (current_user["sub"], today)
+    )
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=400, detail="今日已打过运动卡")
 
     cursor.execute(
         "INSERT INTO checkins (user_id, type, notes, photo_urls, video_url, steps, sport_type, calories) "
@@ -116,9 +139,11 @@ def sport_checkin(data: SportCheckin, current_user: dict = Depends(get_current_u
         (current_user["sub"], points, points, points, points, points, points, points, points)
     )
 
+    awards = check_and_award_achievements(current_user["sub"], conn)
+
     conn.commit()
     conn.close()
-    return {"message": "运动打卡成功", "points": points}
+    return {"message": "运动打卡成功", "points": points, "awards": awards}
 
 @router.get("/today")
 def get_today(current_user: dict = Depends(get_current_user)):
@@ -151,3 +176,66 @@ async def upload_file(file: UploadFile = File(...), folder: str = Form("photos")
         f.write(content)
 
     return {"url": "/uploads/{}/{}".format(folder, filename)}
+
+@router.get("/history")
+def get_history(
+    type: str = Query(None),
+    limit: int = Query(20, le=100),
+    offset: int = Query(0),
+    current_user: dict = Depends(get_current_user)
+):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    conditions = ["user_id=?"]
+    params = [current_user["sub"]]
+
+    if type:
+        conditions.append("type=?")
+        params.append(type)
+
+    where = " AND ".join(conditions)
+    params.extend([limit, offset])
+
+    cursor.execute(
+        f"SELECT * FROM checkins WHERE {where} ORDER BY checkin_time DESC LIMIT ? OFFSET ?",
+        params
+    )
+    records = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute(f"SELECT COUNT(*) FROM checkins WHERE {where}", params[:len(params)-2])
+    total = cursor.fetchone()[0]
+
+    conn.close()
+    return {"records": records, "total": total, "limit": limit, "offset": offset}
+
+@router.get("/record/{record_id}")
+def get_record(record_id: int, current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM checkins WHERE id=? AND user_id=?", (record_id, current_user["sub"]))
+    record = cursor.fetchone()
+    conn.close()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    return dict(record)
+
+@router.delete("/record/{record_id}")
+def delete_record(record_id: int, current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM checkins WHERE id=? AND user_id=?", (record_id, current_user["sub"]))
+    record = cursor.fetchone()
+    if not record:
+        conn.close()
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    record_time = datetime.strptime(record["checkin_time"], "%Y-%m-%d %H:%M:%S")
+    if datetime.now() - record_time > timedelta(hours=24):
+        conn.close()
+        raise HTTPException(status_code=400, detail="超过24小时，无法删除")
+
+    cursor.execute("DELETE FROM checkins WHERE id=?", (record_id,))
+    conn.commit()
+    conn.close()
+    return {"message": "删除成功"}

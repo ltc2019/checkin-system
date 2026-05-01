@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useUserStore } from '../stores/user'
 import SuccessModal from '../components/SuccessModal.vue'
 
@@ -12,16 +12,28 @@ const photoUrls = ref([])
 const videoUrl = ref('')
 const loading = ref(false)
 const error = ref('')
+const alreadyChecked = ref(false)
 
-// 弹窗状态
 const showModal = ref(false)
 const modalMessage = ref('')
 const modalPoints = ref(0)
+const modalAwards = ref([])
 
 const sportTypes = ['跑步', '健身', '骑行', '游泳', '瑜伽', '篮球', '足球', '其他']
 
-// 按钮是否可点击
-const buttonDisabled = computed(() => loading.value || (photoUrls.value.length === 0 && !videoUrl.value))
+const buttonDisabled = computed(() => loading.value || (photoUrls.value.length === 0 && !videoUrl.value) || alreadyChecked.value)
+
+const fetchToday = async () => {
+  try {
+    const res = await fetch('/api/checkin/today', {
+      headers: { Authorization: `Bearer ${userStore.token}` }
+    })
+    const data = await res.json()
+    alreadyChecked.value = data.sport && data.sport.length > 0
+  } catch {}
+}
+
+onMounted(fetchToday)
 
 const calcCalories = () => {
   const rate = { '跑步': 0.04, '骑行': 0.03, '游泳': 0.07, '健身': 0.05, '瑜伽': 0.025, '篮球': 0.06, '足球': 0.06, '其他': 0.035 }
@@ -88,10 +100,15 @@ const checkin = async () => {
       })
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.detail)
+    if (!res.ok) {
+      const errMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
+      throw new Error(errMsg)
+    }
 
     modalMessage.value = data.message
     modalPoints.value = data.points || 3
+    modalAwards.value = data.awards || []
+    alreadyChecked.value = true
     showModal.value = true
 
     steps.value = 0
@@ -99,7 +116,16 @@ const checkin = async () => {
     photoUrls.value = []
     videoUrl.value = ''
   } catch (e) {
-    error.value = e.message
+    console.error('Sport checkin error:', e)
+    if (typeof e === 'string') {
+      error.value = e
+    } else if (e && e.message) {
+      error.value = e.message
+    } else if (e && e.detail) {
+      error.value = e.detail
+    } else {
+      error.value = '打卡失败，请稍后重试'
+    }
   } finally {
     loading.value = false
   }
@@ -121,84 +147,85 @@ const closeModal = () => { showModal.value = false }
     </div>
 
     <div class="card p-6">
-      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4">
+      <div v-if="error" class="p-3 rounded-xl mb-4" style="background: rgba(255, 59, 48, 0.1); color: var(--danger);">
         {{ error }}
       </div>
 
-      <!-- Sport Type -->
-      <div class="mb-4">
-        <label class="text-white/60 text-sm mb-2 block">运动类型</label>
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="st in sportTypes"
-            :key="st"
-            @click="sportType = st"
-            class="px-4 py-2 rounded-full text-sm font-medium transition-all"
-            :class="sportType === st ? 'gradient-sport text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'"
-          >
-            {{ st }}
-          </button>
-        </div>
+      <div v-if="alreadyChecked" class="text-center py-8">
+        <div class="text-6xl mb-4">✅</div>
+        <h3 class="text-xl font-bold">今日已打卡</h3>
+        <p class="text-secondary mt-2">明天继续保持！</p>
       </div>
 
-      <!-- Steps -->
-      <div class="mb-4">
-        <label class="text-white/60 text-sm mb-2 block">今日步数</label>
-        <div class="flex items-center gap-4">
-          <input type="number" v-model.number="steps" @input="calcCalories" placeholder="输入步数" class="w-full text-2xl font-bold" style="color: var(--sport-dark)" />
-          <div class="text-right">
-            <div class="text-sm text-white/40">预估消耗</div>
-            <div class="text-lg font-bold" style="color: var(--sport-dark)">{{ calories }} 千卡</div>
+      <template v-else>
+        <div class="mb-4">
+          <label class="text-secondary text-sm mb-2 block">运动类型</label>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="st in sportTypes"
+              :key="st"
+              @click="sportType = st"
+              class="px-4 py-2 rounded-full text-sm font-medium transition-all"
+              :class="sportType === st ? 'gradient-sport text-white' : 'bg-black/5 dark:bg-white/5 text-secondary hover:bg-black/10 dark:hover:bg-white/10'"
+            >
+              {{ st }}
+            </button>
           </div>
         </div>
-      </div>
 
-      <!-- Photo Upload -->
-      <div class="mb-4">
-        <label class="text-white/60 text-sm mb-2 block">拍照打卡（必填照片或视频）</label>
-        <label class="flex items-center justify-center gap-2 p-6 border-2 border-dashed border-white/20 rounded-xl cursor-pointer hover:border-primary/50 transition-all">
-          <span class="text-3xl">📷</span>
-          <span class="text-white/60">点击上传照片</span>
-          <input type="file" accept="image/*" multiple @change="handlePhotoUpload" class="hidden" />
-        </label>
-        <div v-if="photoUrls.length" class="flex flex-wrap gap-2 mt-3">
-          <div v-for="(url, i) in photoUrls" :key="i" class="relative w-20 h-20 rounded-lg overflow-hidden">
-            <img :src="url" class="w-full h-full object-cover" />
-            <button @click="removePhoto(i)" class="absolute top-0 right-0 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">✕</button>
+        <div class="mb-4">
+          <label class="text-secondary text-sm mb-2 block">今日步数</label>
+          <div class="flex items-center gap-4">
+            <input type="number" v-model.number="steps" @input="calcCalories" placeholder="输入步数" class="w-full text-2xl font-bold" style="color: var(--sport)" />
+            <div class="text-right">
+              <div class="text-sm text-tertiary">预估消耗</div>
+              <div class="text-lg font-bold" style="color: var(--sport)">{{ calories }} 千卡</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Video Upload -->
-      <div class="mb-4">
-        <label class="text-white/60 text-sm mb-2 block">视频打卡（选填）</label>
-        <label class="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-white/20 rounded-xl cursor-pointer hover:border-primary/50 transition-all">
-          <span class="text-2xl">🎥</span>
-          <span class="text-white/60">上传视频</span>
-          <input type="file" accept="video/*" @change="handleVideoUpload" class="hidden" />
-        </label>
-        <video v-if="videoUrl" :src="videoUrl" controls class="w-full mt-3 rounded-xl" style="max-height: 200px;"></video>
-      </div>
+        <div class="mb-4">
+          <label class="text-secondary text-sm mb-2 block">拍照打卡（必填照片或视频）</label>
+          <label class="flex items-center justify-center gap-2 p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all" style="border-color: var(--border);">
+            <span class="text-3xl">📷</span>
+            <span class="text-secondary">点击上传照片</span>
+            <input type="file" accept="image/*" multiple @change="handlePhotoUpload" class="hidden" />
+          </label>
+          <div v-if="photoUrls.length" class="flex flex-wrap gap-2 mt-3">
+            <div v-for="(url, i) in photoUrls" :key="i" class="relative w-20 h-20 rounded-lg overflow-hidden">
+              <img :src="url" class="w-full h-full object-cover" />
+              <button @click="removePhoto(i)" class="absolute top-0 right-0 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center" style="background: var(--danger)">✕</button>
+            </div>
+          </div>
+        </div>
 
-      <!-- Notes -->
-      <div class="mb-4">
-        <label class="text-white/60 text-sm mb-2 block">运动感悟（选填）</label>
-        <textarea v-model="notes" rows="3" placeholder="记录今天的运动..." class="w-full resize-none"></textarea>
-      </div>
+        <div class="mb-4">
+          <label class="text-secondary text-sm mb-2 block">视频打卡（选填）</label>
+          <label class="flex items-center justify-center gap-2 p-4 border-2 border-dashed rounded-xl cursor-pointer transition-all" style="border-color: var(--border);">
+            <span class="text-2xl">🎥</span>
+            <span class="text-secondary">上传视频</span>
+            <input type="file" accept="video/*" @change="handleVideoUpload" class="hidden" />
+          </label>
+          <video v-if="videoUrl" :src="videoUrl" controls class="w-full mt-3 rounded-xl" style="max-height: 200px;"></video>
+        </div>
 
-      <button
-        @click="checkin"
-        :disabled="buttonDisabled"
-        :class="[
-          'btn w-full text-lg font-bold transition-all',
-          buttonDisabled
-            ? 'bg-gray-500/30 text-gray-400 cursor-not-allowed opacity-50'
-            : 'gradient-sport text-white hover:scale-105'
-        ]"
-      >
-        <span v-if="loading">提交中...</span>
-        <span v-else>🏃 提交打卡</span>
-      </button>
+        <div class="mb-4">
+          <label class="text-secondary text-sm mb-2 block">运动感悟（选填）</label>
+          <textarea v-model="notes" rows="3" placeholder="记录今天的运动..." class="w-full resize-none"></textarea>
+        </div>
+
+        <button
+          @click="checkin"
+          :disabled="buttonDisabled"
+          :class="[
+            'btn w-full text-lg font-bold transition-all',
+            buttonDisabled ? 'opacity-50 cursor-not-allowed' : 'gradient-sport text-white hover:scale-105'
+          ]"
+        >
+          <span v-if="loading">提交中...</span>
+          <span v-else>🏃 提交打卡</span>
+        </button>
+      </template>
     </div>
 
     <SuccessModal
@@ -206,6 +233,7 @@ const closeModal = () => { showModal.value = false }
       type="sport"
       :message="modalMessage"
       :points="modalPoints"
+      :awards="modalAwards"
       @close="closeModal"
     />
   </div>

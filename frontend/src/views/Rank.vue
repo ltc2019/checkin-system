@@ -8,6 +8,20 @@ const ranks = ref({ total: [], early: [], reading: [], sport: [] })
 const activeTab = ref('total')
 const loading = ref(false)
 
+const periods = [
+  { key: 'daily', label: '日榜' },
+  { key: 'weekly', label: '周榜' },
+  { key: 'monthly', label: '月榜' },
+  { key: 'yearly', label: '年榜' }
+]
+
+const tabs = [
+  { key: 'total', label: '总榜', icon: '🏆' },
+  { key: 'early', label: '早起', icon: '🌅' },
+  { key: 'reading', label: '读书', icon: '📚' },
+  { key: 'sport', label: '运动', icon: '🏃' }
+]
+
 const fetchRank = async () => {
   loading.value = true
   try {
@@ -23,65 +37,73 @@ const fetchRank = async () => {
 watch(period, fetchRank)
 onMounted(fetchRank)
 
-const getMedalEmoji = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : ''
-const getMedalClass = (i) => i === 0 ? 'medal-gold' : i === 1 ? 'medal-silver' : i === 2 ? 'medal-bronze' : 'text-white/40'
+const getMedal = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : ''
 </script>
 
 <template>
   <div class="p-4 max-w-lg mx-auto pb-24">
-    <div class="card p-6 mb-4" style="background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);">
+    <div class="card p-6 mb-4 gradient-primary">
       <div class="flex items-center gap-4">
-        <div class="text-5xl animate-float">🏆</div>
+        <div class="text-5xl">🏆</div>
         <div>
-          <h2 class="text-2xl font-bold text-gray-800">排行榜</h2>
-          <p class="text-gray-700 text-sm">看看谁是打卡达人</p>
+          <h2 class="text-2xl font-bold text-white">排行榜</h2>
+          <p class="text-white/80 text-sm">看看谁是打卡达人</p>
         </div>
       </div>
     </div>
 
-    <!-- Period Selector -->
     <div class="flex gap-2 mb-4">
       <button
-        v-for="p in ['weekly', 'monthly', 'yearly']"
-        :key="p"
-        @click="period = p"
+        v-for="p in periods"
+        :key="p.key"
+        @click="period = p.key"
         class="btn flex-1 text-sm"
-        :class="period === p ? 'bg-yellow-500/30 text-yellow-300' : 'bg-white/10 text-white/60'"
+        :class="period === p.key ? 'btn-primary' : ''"
       >
-        {{ p === 'weekly' ? '周榜' : p === 'monthly' ? '月榜' : '年榜' }}
+        {{ p.label }}
       </button>
     </div>
 
-    <!-- Tab Selector -->
     <div class="flex gap-2 mb-4">
       <button
-        v-for="t in ['total', 'early', 'reading', 'sport']"
-        :key="t"
-        @click="activeTab = t"
-        class="btn flex-1 text-sm"
-        :class="activeTab === t ? 'gradient-primary text-white' : 'bg-white/10 text-white/60'"
+        v-for="t in tabs"
+        :key="t.key"
+        @click="activeTab = t.key"
+        class="btn flex-1 text-sm flex items-center justify-center gap-1"
+        :class="activeTab === t.key ? (t.key === 'total' ? 'btn-primary' : t.key === 'early' ? 'gradient-sunrise text-white' : t.key === 'reading' ? 'gradient-knowledge text-white' : 'gradient-sport text-white') : ''"
       >
-        {{ t === 'total' ? '总榜' : t === 'early' ? '早起' : t === 'reading' ? '读书' : '运动' }}
+        <span>{{ t.icon }}</span>
+        <span>{{ t.label }}</span>
       </button>
     </div>
 
-    <!-- Rank List -->
     <div class="card p-5">
-      <div v-if="loading" class="text-center py-8 text-white/40">加载中...</div>
-      <div v-else-if="ranks[activeTab].length === 0" class="text-center py-8 text-white/40">
-        <div class="text-4xl mb-4 opacity-40">🏅</div>
+      <div v-if="loading" class="text-center py-8 text-tertiary">加载中...</div>
+      <div v-else-if="!ranks[activeTab] || ranks[activeTab].length === 0" class="text-center py-8 text-tertiary">
+        <div class="text-4xl mb-4 opacity-50">🏅</div>
         暂无排行数据
       </div>
       <div v-else>
-        <div v-for="(r, i) in ranks[activeTab]" :key="r.id" class="flex items-center gap-3 py-3 border-b border-white/5 last:border-0">
-          <div class="w-10 text-center text-xl" :class="getMedalClass(i)">
-            {{ getMedalEmoji(i) || i + 1 }}
+        <div
+          v-for="(r, i) in ranks[activeTab]"
+          :key="r.id"
+          class="flex items-center gap-3 py-3"
+          style="border-bottom: 1px solid var(--border)"
+        >
+          <div class="w-10 text-center text-xl">
+            <span v-if="i < 3">{{ getMedal(i) }}</span>
+            <span v-else class="text-tertiary">{{ i + 1 }}</span>
           </div>
           <div class="flex-1">
-            <div class="font-bold">{{ r.nickname || '未命名' }}</div>
+            <div class="font-bold">{{ r.nickname }}</div>
+            <div v-if="activeTab === 'total'" class="text-xs text-tertiary mt-0.5">
+              🌅{{ r.early }} + 📚{{ r.reading }} + 🏃{{ r.sport }} = {{ r.total }}次
+            </div>
           </div>
-          <div class="text-lg font-bold" :class="i < 3 ? 'text-gradient' : 'text-white/60'">
-            {{ activeTab === 'total' ? r.period_score : r.count }} {{ activeTab === 'total' ? '分' : '次' }}
+          <div class="text-right">
+            <div class="font-bold" :class="i < 3 ? 'text-gradient' : 'text-secondary'">
+              {{ activeTab === 'total' ? r.total : (activeTab === 'early' ? r.early : activeTab === 'reading' ? r.reading : r.sport) }}次
+            </div>
           </div>
         </div>
       </div>

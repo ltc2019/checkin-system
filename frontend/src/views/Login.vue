@@ -36,10 +36,10 @@ const submit = async () => {
       <div class="text-center mb-8">
         <div class="text-6xl mb-4 animate-float">✨</div>
         <h1 class="text-3xl font-bold text-gradient">打卡签到系统</h1>
-        <p class="text-white/60 mt-2">早起 · 读书 · 运动 · 遇见更好的自己</p>
+        <p class="text-secondary mt-2">早起 · 读书 · 运动 · 遇见更好的自己</p>
       </div>
 
-      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4">
+      <div v-if="error" class="p-3 rounded-xl mb-4" style="background: rgba(255, 59, 48, 0.1); color: var(--danger);">
         {{ error }}
       </div>
 
@@ -56,7 +56,7 @@ const submit = async () => {
           {{ loading ? '请稍候...' : (isRegister ? '注册' : '登录') }}
         </button>
 
-        <div class="text-center text-white/60">
+        <div class="text-center text-secondary">
           <button @click="isRegister = !isRegister" class="text-primary hover:underline">
             {{ isRegister ? '已有账号？去登录' : '没有账号？去注册' }}
           </button>

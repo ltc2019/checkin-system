@@ -1,14 +1,18 @@
 <script setup>
-import { defineProps, defineEmits, computed } from 'vue'
+import { defineProps, defineEmits, computed, ref } from 'vue'
 
 const props = defineProps({
   show: Boolean,
   type: String, // 'early' | 'reading' | 'sport'
   message: String,
-  points: Number
+  points: Number,
+  awards: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits(['close'])
+
+const showQrCode = ref(false)
+const shareChannel = ref('') // 'wechat' | 'wework' | 'moments'
 
 const scenes = {
   early: [
@@ -36,39 +40,98 @@ const randomScene = computed(() => {
   return list[Math.floor(Math.random() * list.length)]
 })
 
+const typeNames = { early: '早起', reading: '读书', sport: '运动' }
+
 const shareText = computed(() => {
-  const typeNames = { early: '早起', reading: '读书', sport: '运动' }
-  return `我今天完成了${typeNames[props.type] || ''}打卡！${randomScene.value.desc} #打卡签到`
+  return `🎉 我今天完成了${typeNames[props.type] || ''}打卡！${randomScene.value.desc} 已连续打卡多天，继续加油💪 #打卡签到 #自律人生`
 })
 
-const shareImage = computed(() => {
-  // 返回场景图 URL（可以用 canvas 生成或预设图片）
-  return null
+const shareUrl = computed(() => {
+  return window.location.origin
+})
+
+// 生成二维码URL（使用第三方服务）
+const qrCodeUrl = computed(() => {
+  const text = encodeURIComponent(shareText.value + '\n' + shareUrl.value)
+  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${text}`
 })
 
 const shareToWeibo = () => {
-  const url = encodeURIComponent(window.location.href)
+  const url = encodeURIComponent(shareUrl.value)
   const text = encodeURIComponent(shareText.value)
   window.open(`https://service.weibo.com/share/share.php?url=${url}&title=${text}`, '_blank')
 }
 
 const shareToQQ = () => {
-  const url = encodeURIComponent(window.location.href)
+  const url = encodeURIComponent(shareUrl.value)
   const text = encodeURIComponent(shareText.value)
   window.open(`https://connect.qq.com/widget/shareqq/index.html?url=${url}&title=${text}`, '_blank')
 }
 
-const shareToWechat = () => {
-  // 微信分享需要调用微信 JS-SDK，这里提示用户
-  alert('请截图后打开微信分享给好友')
+// 企业微信分享 - 显示二维码让用户扫码后转发
+const shareToWework = () => {
+  shareChannel.value = 'wework'
+  showQrCode.value = true
 }
 
-const copyLink = () => {
-  navigator.clipboard.writeText(shareText.value + ' ' + window.location.href)
-  alert('已复制到剪贴板！')
+// 微信好友/群分享 - 显示二维码
+const shareToWechat = () => {
+  shareChannel.value = 'wechat'
+  showQrCode.value = true
+}
+
+// 微信朋友圈分享 - 显示二维码
+const shareToMoments = () => {
+  shareChannel.value = 'moments'
+  showQrCode.value = true
+}
+
+const copyShareText = async () => {
+  try {
+    await navigator.clipboard.writeText(shareText.value)
+    alert('✓ 已复制分享内容！\n请打开微信/企业微信群粘贴发送')
+  } catch {
+    // 备用方案
+    const textarea = document.createElement('textarea')
+    textarea.value = shareText.value
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    alert('✓ 已复制分享内容！\n请打开微信/企业微信群粘贴发送')
+  }
+}
+
+const closeQrCode = () => {
+  showQrCode.value = false
+  shareChannel.value = ''
 }
 
 const close = () => emit('close')
+
+const getAchievementInfo = (award) => {
+  const achievements = {
+    early_7: { icon: '🌅', name: '早起坚持7天' },
+    early_14: { icon: '🌅', name: '早起坚持14天' },
+    early_30: { icon: '🌅', name: '早起坚持30天' },
+    early_100: { icon: '🌅', name: '早起坚持100天' },
+    reading_10: { icon: '📚', name: '读书10次' },
+    reading_50: { icon: '📚', name: '读书50次' },
+    reading_100: { icon: '📚', name: '读书100次' },
+    reading_365: { icon: '📚', name: '读书365次' },
+    sport_10: { icon: '🏃', name: '运动10次' },
+    sport_50: { icon: '🏃', name: '运动50次' },
+    sport_100: { icon: '🏃', name: '运动100次' },
+    sport_365: { icon: '🏃', name: '运动365次' },
+    all_1: { icon: '✨', name: '全能新人' },
+    all_10: { icon: '✨', name: '全能达人10次' },
+    all_50: { icon: '✨', name: '全能达人50次' },
+    total_100: { icon: '🏆', name: '总打卡100次' },
+    total_365: { icon: '🏆', name: '总打卡365次' },
+    total_1000: { icon: '🏆', name: '总打卡1000次' },
+  }
+  return achievements[award] || { icon: '🏆', name: award }
+}
 </script>
 
 <template>
@@ -93,26 +156,54 @@ const close = () => emit('close')
           </div>
 
           <!-- 成功信息 -->
-          <div class="bg-white/10 backdrop-blur-xl p-6 text-center">
-            <div class="text-white text-lg mb-2">{{ message }}</div>
+          <div class="bg-white/10 backdrop-blur-xl p-6 text-center" style="background: var(--bg-secondary)">
+            <div class="text-lg mb-2" style="color: var(--text)">{{ message }}</div>
             <div class="text-gradient text-2xl font-bold">+{{ points }} 积分</div>
+
+            <!-- 新成就提示 -->
+            <div v-if="awards && awards.length > 0" class="mt-4 pt-4" style="border-top: 1px solid var(--border)">
+              <p class="font-bold text-sm mb-2 animate-bounce" style="color: var(--gold)">🎉 解锁新成就！</p>
+              <div class="flex justify-center">
+                <div class="rounded-xl px-4 py-2" style="background: rgba(255, 215, 0, 0.15); border: 1px solid rgba(255, 215, 0, 0.3)">
+                  <span class="text-lg">{{ getAchievementInfo(awards[0]).icon }}</span>
+                  <span class="text-sm font-bold ml-2" style="color: var(--gold)">{{ getAchievementInfo(awards[0]).name }}</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- 分享按钮 -->
-          <div class="bg-white/5 backdrop-blur-xl p-4">
-            <p class="text-white/60 text-sm text-center mb-3">分享到</p>
-            <div class="flex justify-center gap-3">
-              <button @click="shareToWeibo" class="w-12 h-12 rounded-full bg-red-500/20 hover:bg-red-500/40 flex items-center justify-center transition-all hover:scale-110">
-                <span class="text-2xl">📱</span>
+          <div class="p-4" style="background: var(--bg)">
+            <p class="text-sm text-center mb-3" style="color: var(--text-secondary)">分享到</p>
+            <div class="grid grid-cols-4 gap-3 mb-3">
+              <!-- 企业微信 -->
+              <button @click="shareToWework" class="aspect-square rounded-xl flex flex-col items-center justify-center transition-all hover:scale-105" style="background: rgba(0, 150, 136, 0.15)">
+                <span class="text-2xl">🏢</span>
+                <span class="text-xs mt-1" style="color: var(--text-secondary)">企业微信</span>
               </button>
-              <button @click="shareToQQ" class="w-12 h-12 rounded-full bg-blue-500/20 hover:bg-blue-500/40 flex items-center justify-center transition-all hover:scale-110">
-                <span class="text-2xl">💬</span>
-              </button>
-              <button @click="shareToWechat" class="w-12 h-12 rounded-full bg-green-500/20 hover:bg-green-500/40 flex items-center justify-center transition-all hover:scale-110">
+              <!-- 微信好友/群 -->
+              <button @click="shareToWechat" class="aspect-square rounded-xl flex flex-col items-center justify-center transition-all hover:scale-105" style="background: rgba(7, 193, 96, 0.15)">
                 <span class="text-2xl">💚</span>
+                <span class="text-xs mt-1" style="color: var(--text-secondary)">微信</span>
               </button>
-              <button @click="copyLink" class="w-12 h-12 rounded-full bg-purple-500/20 hover:bg-purple-500/40 flex items-center justify-center transition-all hover:scale-110">
-                <span class="text-2xl">🔗</span>
+              <!-- 朋友圈 -->
+              <button @click="shareToMoments" class="aspect-square rounded-xl flex flex-col items-center justify-center transition-all hover:scale-105" style="background: rgba(7, 193, 96, 0.1)">
+                <span class="text-2xl">🔄</span>
+                <span class="text-xs mt-1" style="color: var(--text-secondary)">朋友圈</span>
+              </button>
+              <!-- 复制文本 -->
+              <button @click="copyShareText" class="aspect-square rounded-xl flex flex-col items-center justify-center transition-all hover:scale-105" style="background: rgba(88, 86, 214, 0.15)">
+                <span class="text-2xl">📋</span>
+                <span class="text-xs mt-1" style="color: var(--text-secondary)">复制</span>
+              </button>
+            </div>
+            <!-- 其他平台 -->
+            <div class="flex justify-center gap-3">
+              <button @click="shareToWeibo" class="w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-110" style="background: rgba(229, 57, 53, 0.15)">
+                <span class="text-xl">📱</span>
+              </button>
+              <button @click="shareToQQ" class="w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-110" style="background: rgba(0, 122, 255, 0.15)">
+                <span class="text-xl">💬</span>
               </button>
             </div>
           </div>
@@ -122,6 +213,29 @@ const close = () => emit('close')
             ✕
           </button>
         </div>
+
+        <!-- 二维码弹窗 -->
+        <Transition name="fade">
+          <div v-if="showQrCode" class="absolute inset-0 z-60 flex items-center justify-center p-4" @click.self="closeQrCode">
+            <div class="absolute inset-0 bg-black/40"></div>
+            <div class="relative rounded-2xl p-6 w-72 text-center" style="background: var(--bg-secondary)">
+              <div class="text-xl font-bold mb-2" style="color: var(--text)">
+                {{ shareChannel === 'wework' ? '分享到企业微信' : shareChannel === 'wechat' ? '分享到微信' : '分享到朋友圈' }}
+              </div>
+              <p class="text-sm mb-4" style="color: var(--text-secondary)">
+                长按识别二维码，转发给好友或群
+              </p>
+              <img :src="qrCodeUrl" class="w-48 h-48 mx-auto rounded-lg mb-4" alt="分享二维码" />
+              <div class="text-xs mb-4 p-3 rounded-lg" style="background: var(--bg); color: var(--text-secondary)">
+                {{ shareText }}
+              </div>
+              <div class="flex gap-2">
+                <button @click="copyShareText" class="btn flex-1 text-sm">📋 复制文本</button>
+                <button @click="closeQrCode" class="btn flex-1 text-sm">关闭</button>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </div>
     </Transition>
   </Teleport>
@@ -137,6 +251,16 @@ const close = () => emit('close')
 .modal-leave-to {
   opacity: 0;
   transform: scale(0.9);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 .text-gradient {

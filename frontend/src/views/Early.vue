@@ -11,12 +11,11 @@ const alreadyChecked = ref(false)
 const currentTime = ref('')
 const canCheckin = ref(false)
 
-// 弹窗状态
 const showModal = ref(false)
 const modalMessage = ref('')
 const modalPoints = ref(0)
+const modalAwards = ref([])
 
-// 按钮是否可点击
 const buttonDisabled = computed(() => loading.value || alreadyChecked.value || !canCheckin.value)
 
 const checkTime = () => {
@@ -49,17 +48,27 @@ const checkin = async () => {
       body: JSON.stringify({ notes: notes.value }),
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.detail)
+    if (!res.ok) {
+      const errMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
+      throw new Error(errMsg)
+    }
 
-    // 更新状态
     alreadyChecked.value = true
     modalMessage.value = data.message
     modalPoints.value = data.points || 2
-
-    // 显示弹窗
+    modalAwards.value = data.awards || []
     showModal.value = true
   } catch (e) {
-    error.value = e.message
+    console.error('Early checkin error:', e)
+    if (typeof e === 'string') {
+      error.value = e
+    } else if (e && e.message) {
+      error.value = e.message
+    } else if (e && e.detail) {
+      error.value = e.detail
+    } else {
+      error.value = '打卡失败，请稍后重试'
+    }
   } finally {
     loading.value = false
   }
@@ -80,38 +89,35 @@ onMounted(() => {
   <div class="p-4 max-w-lg mx-auto pb-24">
     <div class="card p-6 mb-4 gradient-sunrise">
       <div class="flex items-center gap-4">
-        <div class="text-5xl animate-sunrise">🌅</div>
+        <div class="text-5xl animate-float">🌅</div>
         <div>
-          <h2 class="text-2xl font-bold text-gray-800">早起打卡</h2>
-          <p class="text-gray-600 text-sm">打卡时间：5:30 - 8:30</p>
-          <div class="text-3xl font-mono font-bold text-gray-800 mt-1">{{ currentTime }}</div>
+          <h2 class="text-2xl font-bold text-white">早起打卡</h2>
+          <p class="text-white/80 text-sm">打卡时间：5:30 - 8:30</p>
+          <div class="text-3xl font-mono font-bold text-white mt-1">{{ currentTime }}</div>
         </div>
       </div>
     </div>
 
     <div class="card p-6">
-      <div v-if="error" class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl mb-4">
+      <div v-if="error" class="p-3 rounded-xl mb-4" style="background: rgba(255, 59, 48, 0.1); color: var(--danger);">
         {{ error }}
       </div>
 
-      <!-- 已打卡状态 -->
       <div v-if="alreadyChecked" class="text-center py-8">
         <div class="text-6xl mb-4">✅</div>
         <h3 class="text-xl font-bold">今日已打卡</h3>
-        <p class="text-white/60 mt-2">明天继续保持！</p>
+        <p class="text-secondary mt-2">明天继续保持！</p>
       </div>
 
-      <!-- 未在打卡时间 -->
       <div v-else-if="!canCheckin" class="text-center py-8">
         <div class="text-4xl mb-4 opacity-40">😴</div>
-        <p class="text-white/40">不在打卡时间范围内</p>
-        <p class="text-white/30 text-sm mt-2">请等待 5:30 - 8:30 进行打卡</p>
+        <p class="text-tertiary">不在打卡时间范围内</p>
+        <p class="text-tertiary text-sm mt-2">请等待 5:30 - 8:30 进行打卡</p>
       </div>
 
-      <!-- 可打卡 -->
       <div v-else>
         <div class="mb-4">
-          <label class="text-white/60 text-sm mb-2 block">今日寄语（选填）</label>
+          <label class="text-secondary text-sm mb-2 block">今日寄语（选填）</label>
           <textarea v-model="notes" rows="3" placeholder="记录今天的心情..." class="w-full resize-none"></textarea>
         </div>
 
@@ -121,8 +127,8 @@ onMounted(() => {
           :class="[
             'btn w-full text-lg font-bold transition-all',
             buttonDisabled
-              ? 'bg-gray-500/30 text-gray-400 cursor-not-allowed opacity-50'
-              : 'gradient-sunrise text-gray-800 hover:scale-105'
+              ? 'opacity-50 cursor-not-allowed'
+              : 'gradient-sunrise text-white hover:scale-105'
           ]"
         >
           <span v-if="loading">打卡中...</span>
@@ -132,22 +138,21 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Tips -->
     <div class="card p-4 mt-4">
       <h4 class="font-bold text-sm mb-2 flex items-center gap-2">💡 打卡小贴士</h4>
-      <ul class="text-white/50 text-sm space-y-1">
+      <ul class="text-tertiary text-sm space-y-1">
         <li>• 每天只能打卡一次</li>
         <li>• 连续打卡可获得额外积分</li>
         <li>• 早起打卡可获 2 积分</li>
       </ul>
     </div>
 
-    <!-- 成功弹窗 -->
     <SuccessModal
       :show="showModal"
       type="early"
       :message="modalMessage"
       :points="modalPoints"
+      :awards="modalAwards"
       @close="closeModal"
     />
   </div>

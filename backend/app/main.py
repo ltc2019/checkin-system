@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, '.')
 
 from app.database import init_db
-from app.routers import auth, checkin, books, stats, admin
+from app.routers import auth, checkin, books, stats, admin, achievements, export
 
 init_db()
 
@@ -28,6 +28,8 @@ app.include_router(checkin.router)
 app.include_router(books.router)
 app.include_router(stats.router)
 app.include_router(admin.router)
+app.include_router(achievements.router)
+app.include_router(export.router)
 
 @app.get("/")
 def root():
